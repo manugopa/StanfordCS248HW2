@@ -55,9 +55,110 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::erase_edge(Halfedge_Mesh::E
     the new vertex created by the collapse.
 */
 std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Mesh::EdgeRef e) {
+    HalfedgeRef h0 = e->halfedge();
+    VertexRef v0 = h0->vertex();
+    FaceRef f0 = h0->face();
 
-    (void)e;
-    return std::nullopt;
+    HalfedgeRef h1 = h0->twin();
+    VertexRef v1 = h1->vertex();
+    FaceRef f1 = h1->face();
+
+    // Collect edges referencing v1
+    std::vector<HalfedgeRef> v1_halfedges;
+    HalfedgeRef hIterator = h1;
+    while (hIterator->twin()->next() != h1) {
+        hIterator = hIterator->twin()->next();
+        v1_halfedges.push_back(hIterator);
+    }
+    v1_halfedges.push_back(hIterator);
+
+    // Delete adjacent faces and one edge if the faces are triangles; reassign halfedges of face otherwise
+    bool f0_triangle = (h0->next()->next()->next() == h0);
+    bool f1_triangle = (h1->next()->next()->next() == h1);
+    HalfedgeRef h2;
+    HalfedgeRef h2_twin;
+    EdgeRef e2;
+    if (f0_triangle) {
+        h2 = h0->next();
+        h2_twin = h2->twin();
+        FaceRef f2 = h2->twin()->face();
+        HalfedgeRef h4 = h2->next();
+        f2->halfedge() = h4;
+        VertexRef v2 = h4->vertex();
+        v2->halfedge() = h4;
+        e2 = h2->edge();
+        h4->next() = h2->twin()->next();
+        h4->face() = f2;
+        HalfedgeRef h6 = h2->twin();
+        while (h6->next() != h2->twin()) {
+            h6 = h6->next();
+        }
+        h6->next() = h4;
+    } else {
+        f0->halfedge() = h0->next();
+        HalfedgeRef h2 = h0->next();
+        HalfedgeRef h4 = h2->next();
+        while (h4->next() != h0) {
+            h4 = h4->next();
+        }
+        h4->next() = h2;
+    }
+    HalfedgeRef h3;
+    HalfedgeRef h3_twin;
+    EdgeRef e3;
+    if (f1_triangle) {
+        h3 = h1->next();
+        h3_twin = h3->twin();
+        FaceRef f3 = h3->twin()->face();
+        HalfedgeRef h5 = h3->next();
+        f3->halfedge() = h5;
+        VertexRef v3 = h5->vertex();
+        v3->halfedge() = h5;
+        e3 = h3->edge();
+        h5->next() = h3->twin()->next();
+        h5->face() = f3;
+        HalfedgeRef h7 = h3->twin();
+        while (h7->next() != h3->twin()) {
+            h7 = h7->next();
+        }
+        h7->next() = h5;
+        v0->halfedge() = h5->twin();
+    } else {
+        f1->halfedge() = h1->next();
+        HalfedgeRef h3 = h1->next();
+        HalfedgeRef h5 = h3->next();
+        while (h5->next() != h1) {
+            h5 = h5->next();
+        }
+        h5->next() = h3;
+    }
+
+    // Loop through outgoing edges from v1 and make them outgoing edges from v0
+    while (!v1_halfedges.empty()) {
+        hIterator = v1_halfedges.back();
+        hIterator->vertex() = v0;
+        v1_halfedges.pop_back();
+    }
+    v0->pos = (v0->pos)/2 + (v1->pos)/2;
+
+    if (f0_triangle) {
+        erase(h2_twin);
+        erase(h2);
+        erase(f0);
+        erase(e2);
+    }
+    if (f1_triangle) {
+        erase(h3_twin);
+        erase(h3);
+        erase(f1);
+        erase(e3);
+    }
+    erase(h0);
+    erase(h1);
+    erase(e);
+    erase(v1);
+    return v0;
+
 }
 
 /*
