@@ -2,6 +2,7 @@
 #include <queue>
 #include <set>
 #include <unordered_map>
+#include <iostream>
 
 #include "../geometry/halfedge.h"
 #include "debug.h"
@@ -631,8 +632,162 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
     // Reminder: You should set the positions of new vertices (v->pos) to be exactly
     // the same as wherever they "started from."
 
-    (void)f;
-    return std::nullopt;
+    // (void)f;
+
+    // -------------------------------------------------------------------------------------------
+    // --- See diagram in {DIAGRAM_FNAME}.md for visual mapping between mesh objects & indices ---
+    // -------------------------------------------------------------------------------------------
+    std::cout<<"Yay we're beveling! " << std::endl;
+
+    // Don't bevel a boundary...
+    if(f->is_boundary()){return f;}
+
+    // Bank of edges, halfedges, faces, vertices, and edges that must be connected into the new mesh
+    HalfedgeRef halfedge_iter_ref = f->halfedge();
+    std::vector<HalfedgeRef> original_halfedges; // Keep track of face-poly half_edges 
+    std::vector<FaceRef> new_faces; // Should be one new face for each face-poly degree
+    std::vector<HalfedgeRef> new_halfedges; // Will need to fill this with 4 HE per face-poly degree
+    std::vector<VertexRef> new_vertices; // Should be one new vertex for each face-poly degree
+    std::vector<EdgeRef> new_edges; // Should be two edges per new face
+
+    // Utilities -- should be constant
+    int NUM_EDGES_PER_BFACE = 2; // Number of new edges added per bevel-face
+    int NUM_HALFEDGES_PER_BFACE = 4; // Number of half-edges required to loop around one bevel-face
+
+    // Loop around the given face f, after performing one step first
+    // Locates all half edges that need new faces
+    do
+    {
+        // looping utils & face-poly halfedge tracking
+        original_halfedges.push_back(halfedge_iter_ref);
+        halfedge_iter_ref = halfedge_iter_ref->next();
+
+        // create all the faces, edges, vertices, and half-edge objects needed
+        new_faces.push_back(new_face());
+        new_vertices.push_back(new_vertex());
+        for(int i=0; i<NUM_EDGES_PER_BFACE;i++)
+            new_edges.push_back(new_edge()); // [horizontal_edge, vertical_edge]
+        for(int i=0; i<NUM_HALFEDGES_PER_BFACE; i++)
+            new_halfedges.push_back(new_halfedge()); // [right, top, left, up]x4
+    }while(halfedge_iter_ref != f->halfedge());
+
+    int N = original_halfedges.size(); // Note: this should always be the same as f->degree()
+    for(size_t i=0; i < f->degree(); i++)
+    {
+        int halfedge_idx = i*NUM_HALFEDGES_PER_BFACE; // Since there are NUM_HALFEDGES_PER_BFACE number of halfedges per iteration unit (bevel faces)
+        int edge_idx = i*NUM_EDGES_PER_BFACE; // Since there are NUM_EDGES_PER_BFACE number of edges added per iteration unit (bevel faces)
+
+        // Upkeep: set new vertices to their respective "starting positions" & one possible associated half-edge
+        new_vertices[i]->pos = original_halfedges[i]->vertex()->pos;
+        new_vertices[i]->halfedge() = new_halfedges[halfedge_idx+3]; // Chose to set it to the halfedges within f
+
+        // Upkeep: set new edges to one possible associated half-edge
+        new_edges[edge_idx]->halfedge() = new_halfedges[halfedge_idx+3]; // Chose to set it to the halfedges within f
+        new_edges[edge_idx+1]->halfedge() = new_halfedges[halfedge_idx];
+
+        // Upkeep: set new faces to one of possible associated half-edges
+        new_faces[i]->halfedge() = new_halfedges[halfedge_idx];
+
+        // bottom (defined as the original halfedge)
+        original_halfedges[i]->face() = new_faces[i]; // Assign new face
+        original_halfedges[i]->next() = new_halfedges[halfedge_idx]; // Begin new loop
+
+        // right (index%NUM_HALFEDGES_PER_BFACE=0)
+        new_halfedges[halfedge_idx]->twin() = new_halfedges[((i+1)*NUM_HALFEDGES_PER_BFACE+2)%(N*NUM_HALFEDGES_PER_BFACE)];
+        new_halfedges[halfedge_idx]->next() = new_halfedges[halfedge_idx+1];
+        new_halfedges[halfedge_idx]->vertex() = original_halfedges[(i+1)%N]->vertex();
+        new_halfedges[halfedge_idx]->edge() = new_edges[edge_idx+1]; // vertical
+        new_halfedges[halfedge_idx]->face() = new_faces[i];
+
+        // top (index%NUM_HALFEDGES_PER_BFACE=1)
+        new_halfedges[halfedge_idx+1]->twin() = new_halfedges[halfedge_idx+3]; // Shared within iteration unit (up)
+        new_halfedges[halfedge_idx+1]->next() = new_halfedges[halfedge_idx+2];
+        new_halfedges[halfedge_idx+1]->vertex() = new_vertices[(i+1)%N];
+        new_halfedges[halfedge_idx+1]->edge() = new_edges[edge_idx]; // horizontal
+        new_halfedges[halfedge_idx+1]->face() = new_faces[i];
+
+        // left (index%NUM_HALFEDGES_PER_BFACE=2)
+        i == 0 ? new_halfedges[halfedge_idx+2]->twin() = new_halfedges[((N-1)*NUM_HALFEDGES_PER_BFACE)] : new_halfedges[halfedge_idx+2]->twin() = new_halfedges[(i-1)*NUM_HALFEDGES_PER_BFACE]; // First halfedge of last iteration unit if at first iteration unit, otherwise, prev iteration unit's first halfedge
+        new_halfedges[halfedge_idx+2]->next() = original_halfedges[i];
+        new_halfedges[halfedge_idx+2]->vertex() = new_vertices[i];
+        i == 0 ? new_halfedges[halfedge_idx+2]->edge() = new_edges[N*NUM_EDGES_PER_BFACE-1] : new_halfedges[halfedge_idx+2]->edge() = new_edges[edge_idx-1]; // wrap to last-vertical-edge if at first face, otherwise vertical
+        new_halfedges[halfedge_idx+2]->face() = new_faces[i];
+
+        // up (index%NUM_HALFEDGES_PER_BFACE=3)
+        new_halfedges[halfedge_idx+3]->twin() = new_halfedges[halfedge_idx+1]; // Shared within iteration unit (top)
+        new_halfedges[halfedge_idx+3]->next() = new_halfedges[(((i+1)*NUM_HALFEDGES_PER_BFACE)%(N*NUM_HALFEDGES_PER_BFACE))+3];
+        new_halfedges[halfedge_idx+3]->vertex() = new_vertices[i];
+        new_halfedges[halfedge_idx+3]->edge() = new_edges[edge_idx]; // horizontal
+        new_halfedges[halfedge_idx+3]->face() = f;
+    }
+
+    // // DEBUG -- Twin twin is not self!
+    // std::cout << "CHECKING TWINS" << std::endl;
+    // int check_idx = 1;
+    // std::cout << "HE#" << check_idx << ": " << new_halfedges[check_idx]->id() << std::endl;
+
+    // for(int i=0; i < 4*N; i++)
+    // {
+    //     std::cout << "AT HALF-EDGE: (" << i << "," << new_halfedges[i]->id() << ") \t twin=(" << new_halfedges[i]->twin()->id() << ") \t" << "twin^2=(" << new_halfedges[i]->twin()->twin()->id() << ")" << std::endl;
+    // }
+
+    // // DEBUG -- A half-edge is the next of nothing!
+    // std::cout << "--- edge#-to-ID# Pairing ---" << std::endl;
+    // for(int i=0; i < 4*N; i++)
+    // {
+    //     std::cout << "HE#" << i << ": " << new_halfedges[i]->id() << std::endl;
+    // }
+    // std::cout << "--- -------------------- ---" << std::endl;
+    // for(int i=0; i < 4; i++)
+    // {
+    //     std::cout << "OG_HE#" << i << ": " << original_halfedges[i]->id() << std::endl;
+    // }
+    // std::cout << "--- -------------------- ---" << std::endl;
+
+    // for(int i=0; i < 4*N; i++)
+    // {
+    //     std::cout << "HE#" << i << "->next()= " << new_halfedges[i]->next()->id() << std::endl;
+    // }
+    // std::cout << "--- -------------------- ---" << std::endl;
+    // for(int i=0; i < 4; i++)
+    // {
+    //     std::cout << "OG_HE#" << i << "->next()= " << original_halfedges[i]->next()->id() << std::endl;
+    // }
+
+    // // DEBUG -- Unexplained segfault :(
+    // std::cout << "--- Vertex#-to-ID# Pairing ---" << std::endl;
+    // for(int i=0; i < 4; i++)
+    // {
+    //     std::cout << "V#" << i << ": " << new_vertices[i]->id() << std::endl;
+    // }
+    // for(int i=0; i < 4; i++)
+    // {
+    //     std::cout << "OG_V#" << i << ": " << original_halfedges[i]->vertex()->id() << std::endl;
+    // }
+    // std::cout << "--- -------------------- ---" << std::endl;
+
+    // std::cout << "--- Check all Vertices ---" << std::endl;
+    // for(int i=0; i < 4*N; i++)
+    // {
+    //     std::cout << "HE#" << i << ": " << new_halfedges[i]->vertex()->id() << std::endl;
+    // }
+    // std::cout << "--- -------------------- ---" << std::endl;
+
+
+
+    // Give f it's new starting half-edge
+    f->halfedge() = new_halfedges[3];
+
+    // HalfedgeRef test_h = f->halfedge();
+    // do {
+    //     test_h = test_h->next();
+    //     std::cout << "Tracing: " << test_h->id() << std::endl;
+    // } while(test_h != f->halfedge());
+
+    // std::cout << "Yay! Done beveling: " << f->id() << std::endl;
+    // std::cout << "Yay! Done beveling: " << f->halfedge()->id() << std::endl;
+
+    return f;
 }
 
 /*
@@ -730,11 +885,16 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
         h = h->next();
     } while(h != face->halfedge());
 
-    (void)new_halfedges;
-    (void)start_positions;
-    (void)face;
-    (void)tangent_offset;
-    (void)normal_offset;
+    Vec3 curr_normal = face->normal();
+    Vec3 curr_center = face->center();
+
+    Vec3 norm_vector = curr_normal*normal_offset;
+    for(size_t i = 0; i < new_halfedges.size(); i++)
+    {
+        Vec3 start_pos = start_positions[i];
+        new_halfedges[i]->vertex()->pos = start_pos-norm_vector + (curr_center-start_pos)*tangent_offset;
+    }
+
 }
 
 /*
