@@ -892,7 +892,8 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
     for(size_t i = 0; i < new_halfedges.size(); i++)
     {
         Vec3 start_pos = start_positions[i];
-        new_halfedges[i]->vertex()->pos = start_pos-norm_vector + (curr_center-start_pos)*tangent_offset;
+        Vec3 tangent_vector = start_pos-curr_center;
+        new_halfedges[i]->vertex()->pos = start_pos-norm_vector + (tangent_vector.unit())*tangent_offset;
     }
 
 }
