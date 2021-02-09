@@ -902,8 +902,51 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
     Splits all non-triangular faces into triangles.
 */
 void Halfedge_Mesh::triangulate() {
+    std::vector<FaceRef> original_faces;
+    for(FaceRef f = faces_begin(); f != faces_end(); f++) {
+        original_faces.push_back(f);
+    }
 
-    // For each face...
+    while (!original_faces.empty()) {
+        FaceRef f0 = original_faces.back();
+        HalfedgeRef hStart = f0->halfedge();
+        VertexRef vStart = hStart->vertex();
+        HalfedgeRef hIterator = hStart->next();
+        HalfedgeRef h_outgoing;
+        HalfedgeRef h_incoming = hStart;
+        if ((hIterator->next()->next() != hStart) && !(f0->is_boundary())) {
+            while (hIterator->next()->next() != hStart) {
+                HalfedgeRef hNext = hIterator->next();
+                h_outgoing = new_halfedge();
+                EdgeRef e = new_edge();
+                e->halfedge() = h_outgoing;
+                FaceRef f = new_face();
+                f->halfedge() = h_outgoing;
+                
+                h_outgoing->face() = f;
+                h_outgoing->next() = h_incoming;
+                h_outgoing->edge() = e;
+                h_outgoing->vertex() = hNext->vertex();
+
+                h_incoming->face() = f;
+                h_incoming = new_halfedge();
+                h_incoming->next() = hNext;
+                h_incoming->vertex() = vStart;
+                h_incoming->twin() = h_outgoing;
+                h_incoming->edge() = e;
+
+                h_outgoing->twin() = h_incoming;
+
+                hIterator->next() = h_outgoing;
+                hIterator->face() = f;
+                hIterator = hNext;
+            }
+            hIterator->next()->next() = h_incoming;
+            h_incoming->face() = f0;
+            f0->halfedge() = h_incoming;
+        }
+        original_faces.pop_back();
+    }
 }
 
 /* Note on the quad subdivision process:
