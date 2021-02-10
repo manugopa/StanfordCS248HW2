@@ -1009,13 +1009,25 @@ void Halfedge_Mesh::linear_subdivide_positions() {
 
     // For each vertex, assign Vertex::new_pos to
     // its original position, Vertex::pos.
+    for (VertexRef v = vertices_begin(); v != vertices_end(); v++)
+    {
+        v->new_pos = v->pos;
+    }
 
     // For each edge, assign the midpoint of the two original
     // positions to Edge::new_pos.
-
+    for (EdgeRef e = edges_begin(); e != edges_end(); e++)
+    {
+        e->new_pos = e->center();
+    }
     // For each face, assign the centroid (i.e., arithmetic mean)
     // of the original vertex positions to Face::new_pos. Note
     // that in general, NOT all faces will be triangles!
+    for (FaceRef f=faces_begin(); f!=faces_end(); f++)
+    {
+        f->new_pos = f->center(); // Use the function they have so kindly provided
+    }
+    
 }
 
 /*
@@ -1037,10 +1049,48 @@ void Halfedge_Mesh::catmullclark_subdivide_positions() {
     // rules. (These rules are outlined in the Developer Manual.)
 
     // Faces
+    for (FaceRef f=faces_begin(); f!=faces_end(); ++f)
+    {
+        f->new_pos = f->center(); // Use the function they have so kindly provided
+    }
 
-    // Edges
+    // Edges -- Average of edges and adjacent faces
+    for (EdgeRef e = edges_begin(); e != edges_end(); e++){
+        Vec3 edge_center = e->center();
+        Vec3 face_center = e->halfedge()->face()->center();
+        Vec3 twin_center = e->halfedge()->twin()->face()->center();
+        e->new_pos = (edge_center + (face_center + twin_center)/2)/2;
+    }
 
     // Vertices
+    for (VertexRef v = vertices_begin(); v != vertices_end(); v++){
+        HalfedgeRef he = v->halfedge();
+
+        // F: Average of adjacent faces
+        Vec3 F;
+        // R: Average of adjacent edge midpoints
+        Vec3 R;
+        // Traverse
+        do
+        {
+            F += he->face()->new_pos; // already updated
+            R += he->edge()->new_pos; // already updated
+            he = he->twin()->next(); // Traverse to a HE on next edge
+        }while(he != v->halfedge());
+
+        float n = (float)(v->degree());
+
+        // Average F and R accumulation
+        F /= n;
+        R /= n;
+
+        // P: Original vertex position
+        Vec3 P = v->pos;
+
+        // Assign
+        v->new_pos = (F+2*R+(n-3)*P)/n;
+    }
+
 }
 
 /*
