@@ -902,11 +902,13 @@ void Halfedge_Mesh::bevel_face_positions(const std::vector<Vec3>& start_position
     Splits all non-triangular faces into triangles.
 */
 void Halfedge_Mesh::triangulate() {
+    // Create stack of original faces
     std::vector<FaceRef> original_faces;
     for(FaceRef f = faces_begin(); f != faces_end(); f++) {
         original_faces.push_back(f);
     }
 
+    // Loop through faces and create triangles in any faces that are non-triangular and non-boundary
     while (!original_faces.empty()) {
         FaceRef f0 = original_faces.back();
         HalfedgeRef hStart = f0->halfedge();
@@ -1172,6 +1174,10 @@ bool Halfedge_Mesh::isotropic_remesh() {
 
 /* Helper type for quadric simplification */
 struct Edge_Record {
+    Halfedge_Mesh::EdgeRef edge;
+    Vec3 optimal;
+    Mat4 A;
+    float cost;
     Edge_Record() {
     }
     Edge_Record(std::unordered_map<Halfedge_Mesh::VertexRef, Mat4>& vertex_quadrics,
@@ -1185,10 +1191,25 @@ struct Edge_Record {
         //    Edge_Record::optimal.
         // -> Also store the cost associated with collapsing this edge in
         //    Edge_Record::cost.
+        edge = e;
+        Halfedge_Mesh::VertexRef v1 = e->halfedge()->vertex();
+        Halfedge_Mesh::VertexRef v2 = e->halfedge()->twin()->vertex();
+        A = vertex_quadrics[v1] + vertex_quadrics[v2];
+        Vec3 b = Vec3(-A[3][0], -A[3][1], -A[3][2]);
+        A[3][0] = 0;
+        A[3][1] = 0;
+        A[3][2] = 0;
+        A[3][0] = 0;
+        A[1][3] = 0;
+        A[2][3] = 0;
+        A[3][3] = 1;
+        if (A.det() > 0.001) {
+            optimal = A.inverse() * b;
+        } else {
+            optimal = b;
+        }
+        cost = dot(optimal, A*optimal);
     }
-    Halfedge_Mesh::EdgeRef edge;
-    Vec3 optimal;
-    float cost;
 };
 
 /* Comparison operator for Edge_Records so std::set will properly order them */
@@ -1311,6 +1332,105 @@ bool Halfedge_Mesh::simplify() {
     // The rest of the codebase will automatically call validate() after each op,
     // but here simply calling collapse_edge() will not erase the elements.
     // You should use collapse_edge_erase() instead for the desired behavior.
+    
+    // Compute quadrics for all faces
+    int initialFaceCount = 0;
+    for(FaceRef f = faces_begin(); f != faces_end(); f++) {
+        if (f->is_boundary()) { // Set no contribution to sum for boundary faces 
+            face_quadrics[f] = Mat4::Zero;
+        } else {
+            if (f->halfedge()->next()->next()->next() != f->halfedge()) {
+                return false;
+            }
+            VertexRef v1 = f->halfedge()->vertex();
+            VertexRef v2 = f->halfedge()->next()->vertex();
+            VertexRef v3 = f->halfedge()->next()->next()->vertex();
+            Vec3 N = cross((v1->pos)-(v2->pos), (v3->pos)-(v2->pos));
+            Vec4 plane_vector = Vec4(N[0], N[1], N[2], -dot(N, (v1->pos)));
+            Mat4 quadric = outer(plane_vector, plane_vector);
+            face_quadrics[f] = quadric;
+            initialFaceCount = initialFaceCount + 1;
+        }
+    }
 
-    return false;
+    // Compute quadrics for all vertices
+    for(VertexRef v = vertices_begin(); v != vertices_end(); v++) {
+        Mat4 quadric = Mat4::Zero;
+        HalfedgeRef hStart = v->halfedge();
+        HalfedgeRef hIterator = hStart;
+        while (hIterator->twin()->next() != hStart) {
+            quadric = quadric + face_quadrics[hIterator->face()];
+            hIterator = hIterator->twin()->next();
+        }
+        vertex_quadrics[v] = quadric;
+    }
+    
+    // Initialize queue of edges to be removed
+    for(EdgeRef e = edges_begin(); e != edges_end(); e++) {
+        Edge_Record record = Edge_Record(vertex_quadrics, e);
+        edge_records[e] = record;
+        edge_queue.insert(record);
+    }
+
+    // Remove edges until desired number of faces while
+    // adjusting quadrics, edge records, and queue as appropriate
+    int currentFaceCount = initialFaceCount;
+    std::cout << currentFaceCount << std::flush;
+    while (currentFaceCount > initialFaceCount/4){
+        if (currentFaceCount <= 5) {
+            return false;
+        }
+        std::cout << currentFaceCount << '\n' << std::flush;
+        std::cout << initialFaceCount/4 << '\n' << std::flush;
+        Edge_Record bestEdge = edge_queue.top();
+        EdgeRef chosen_e = bestEdge.edge;
+        if (chosen_e->on_boundary()){
+            currentFaceCount = currentFaceCount - 1;
+        } else {
+            currentFaceCount = currentFaceCount - 2;
+        }
+        edge_queue.pop();
+        Mat4 new_quadric = bestEdge.A;
+
+        // Remove adjacent edges from q and from records
+        EdgeRef e;
+        Edge_Record record;
+        HalfedgeRef hStart = chosen_e->halfedge();
+        HalfedgeRef hIterator = hStart;
+        while (hIterator->twin()->next() != hStart) {
+            e = hIterator->edge();
+            record = edge_records[e];
+            edge_queue.remove(record);
+            hIterator = hIterator->twin()->next();
+        }
+        hStart = chosen_e->halfedge()->twin();
+        hIterator = hStart;
+        while (hIterator->twin()->next() != hStart) {
+            e = hIterator->edge();
+            record = edge_records[e];
+            edge_queue.remove(record);
+            hIterator = hIterator->twin()->next();
+        }
+        
+
+        VertexRef collapsed_edge = *collapse_edge(chosen_e);
+        vertex_quadrics[collapsed_edge] = new_quadric;
+        collapsed_edge->pos = bestEdge.optimal;
+        
+        // Update adjacent edges in edge_records and edge_queue
+        hStart = collapsed_edge->halfedge();
+        hIterator = hStart;
+        while (hIterator->twin()->next() != hStart) {
+            e = hIterator->edge();
+            record = Edge_Record(vertex_quadrics, e);
+            edge_records[e] = record;
+            edge_queue.insert(record);
+            hIterator = hIterator->twin()->next();
+        }
+        e = hIterator->edge();
+        record = Edge_Record(vertex_quadrics, e);
+        edge_records[e] = record;
+        edge_queue.insert(record);
+    }
+    return true;
 }

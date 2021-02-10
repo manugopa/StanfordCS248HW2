@@ -11,10 +11,10 @@ Manu Gopakumar (manugopa@stanford.edu)
 - [x] EdgeSplit
 
 ### Global
-- [ ] Triangulation
-- [ ] LinearSubdivision
-- [ ] CatmullClarkSubdivision
-- [ ] Simplification
+- [ ] Triangulation (Manu)
+- [ ] LinearSubdivision (Edwin)
+- [ ] CatmullClarkSubdivision (Edwin)
+- [ ] Simplification (Manu)
 
 
 ## Extra Tasks Completed
