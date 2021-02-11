@@ -709,12 +709,17 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
     }while(halfedge_iter_ref != f->halfedge());
 
     int N = original_halfedges.size(); // Note: this should always be the same as f->degree()
-    for(size_t i=0; i < f->degree(); i++)
+    for(int i=0; i < N; i++)
     {
         int halfedge_idx = i*NUM_HALFEDGES_PER_BFACE; // Since there are NUM_HALFEDGES_PER_BFACE number of halfedges per iteration unit (bevel faces)
         int edge_idx = i*NUM_EDGES_PER_BFACE; // Since there are NUM_EDGES_PER_BFACE number of edges added per iteration unit (bevel faces)
 
         // Upkeep: set new vertices to their respective "starting positions" & one possible associated half-edge
+        std::cout << "---- new iter -----" << std::endl;
+        std::cout << "f-degree0 " << f->degree() << std::endl;
+        std::cout << "original_halfedges ID# = " << original_halfedges[i]->id()<< std::endl;
+        std::cout << "vertex ID# = " << original_halfedges[i]->vertex()->id()<< std::endl;
+
         new_vertices[i]->pos = original_halfedges[i]->vertex()->pos;
         new_vertices[i]->halfedge() = new_halfedges[halfedge_idx+3]; // Chose to set it to the halfedges within f
 
@@ -728,6 +733,7 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
         // bottom (defined as the original halfedge)
         original_halfedges[i]->face() = new_faces[i]; // Assign new face
         original_halfedges[i]->next() = new_halfedges[halfedge_idx]; // Begin new loop
+
 
         // right (index%NUM_HALFEDGES_PER_BFACE=0)
         new_halfedges[halfedge_idx]->twin() = new_halfedges[((i+1)*NUM_HALFEDGES_PER_BFACE+2)%(N*NUM_HALFEDGES_PER_BFACE)];
@@ -821,8 +827,8 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
     //     std::cout << "Tracing: " << test_h->id() << std::endl;
     // } while(test_h != f->halfedge());
 
-    // std::cout << "Yay! Done beveling: " << f->id() << std::endl;
-    // std::cout << "Yay! Done beveling: " << f->halfedge()->id() << std::endl;
+    std::cout << "Yay! Done beveling: " << f->id() << std::endl;
+    std::cout << "Yay! Done beveling: " << f->halfedge()->id() << std::endl;
 
     return f;
 }
@@ -1237,11 +1243,11 @@ struct Edge_Record {
         A[3][0] = 0;
         A[3][1] = 0;
         A[3][2] = 0;
-        A[3][0] = 0;
+        A[0][3] = 0;
         A[1][3] = 0;
         A[2][3] = 0;
         A[3][3] = 1;
-        if (A.det() > 0.1) {
+        if (A.det() > 0.00001) {
             Vec4 x = A.inverse() * b;
             optimal = Vec3(x[0], x[1], x[2]);
         } else {

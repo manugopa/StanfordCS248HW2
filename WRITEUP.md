@@ -11,10 +11,10 @@ Manu Gopakumar (manugopa@stanford.edu)
 - [x] EdgeSplit
 
 ### Global
-- [x] Triangulation (Manu)
-- [x] LinearSubdivision (Edwin)
-- [x] CatmullClarkSubdivision (Edwin)
-- [ ] Simplification (Manu)
+- [x] Triangulation
+- [x] LinearSubdivision
+- [x] CatmullClarkSubdivision
+- [x] Simplification
 
 
 ## Extra Tasks Completed
@@ -31,3 +31,4 @@ Manu Gopakumar (manugopa@stanford.edu)
 
 
 ## Comments/Considerations
+On `Simplification`, the smallest primitive was set to be when all remaining edges either have vertices that are degree 2 or less, or the same vertices. When `A` is singular, the midpoint of the lines is used. The America's Next Top 3D Model is included under the filename `$ROOT/model.dae`. 
