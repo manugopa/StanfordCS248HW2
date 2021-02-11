@@ -51,6 +51,31 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::erase_edge(Halfedge_Mesh::E
     return std::nullopt;
 }
 
+bool collapsable_edge(Halfedge_Mesh::EdgeRef e) {
+    Halfedge_Mesh::HalfedgeRef h0 = e->halfedge();
+    Halfedge_Mesh::HalfedgeRef h1 = h0->twin();
+    Halfedge_Mesh::HalfedgeRef h2 = h0->next();
+    Halfedge_Mesh::HalfedgeRef h3 = h1->next();
+    Halfedge_Mesh::HalfedgeRef i0 = h2;
+
+    // Check if there are any edges would be collapsed onto each other due to the 3d geometry
+    do {
+        if (i0 != h2) {
+            Halfedge_Mesh::HalfedgeRef i1 = h3;
+            do {
+                if (i1 != h3) {
+                    if (i1->twin()->vertex() == i0->twin()->vertex()) {
+                        return false;
+                    }
+                }
+                i1 = i1->twin()->next();
+            } while (i1 != h3);
+        }
+        i0 = i0->twin()->next();
+    } while (i0 != h2);
+    return true;
+}
+
 /*
     This method should collapse the given edge and return an iterator to
     the new vertex created by the collapse.
@@ -64,7 +89,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
     VertexRef v1 = h1->vertex();
     FaceRef f1 = h1->face();
 
-    if ((v1->degree() <= 2) || (v0->degree() <= 2) || (v0 == v1)){
+    if (!(collapsable_edge(e))){
         return std::nullopt;
     }
 
@@ -1426,9 +1451,7 @@ bool Halfedge_Mesh::simplify() {
         }
         if (edge_queue.size() == 0) {
             for(EdgeRef e = edges_begin(); e != edges_end(); e++) {
-                if ((e->halfedge()->vertex()->degree() > 2) &&
-                   (e->halfedge()->twin()->vertex()->degree() > 2) && 
-                   (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+                if (collapsable_edge(e)){
                     Edge_Record record = Edge_Record(vertex_quadrics, e);
                     edge_records[e] = record;
                     edge_queue.insert(record);
@@ -1498,9 +1521,7 @@ bool Halfedge_Mesh::simplify() {
             hIterator = hStart;
             while (hIterator->twin()->next() != hStart) {
                 e = hIterator->edge();
-                if ((e != chosen_e) && (e->halfedge()->vertex()->degree() > 2) &&
-                   (e->halfedge()->twin()->vertex()->degree() > 2) && 
-                   (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+                if (collapsable_edge(e)){
                     record = Edge_Record(vertex_quadrics, e);
                     edge_records[e] = record;
                     edge_queue.insert(record);
@@ -1508,9 +1529,7 @@ bool Halfedge_Mesh::simplify() {
                 hIterator = hIterator->twin()->next();
             }
             e = hIterator->edge();
-            if ((e != chosen_e) && (e->halfedge()->vertex()->degree() > 2) &&
-               (e->halfedge()->twin()->vertex()->degree() > 2) && 
-               (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+            if (collapsable_edge(e)){
                 record = Edge_Record(vertex_quadrics, e);
                 edge_records[e] = record;
                 edge_queue.insert(record);
@@ -1519,9 +1538,7 @@ bool Halfedge_Mesh::simplify() {
             hIterator = hStart;
             while (hIterator->twin()->next() != hStart) {
                 e = hIterator->edge();
-                if ((e != chosen_e) && (e->halfedge()->vertex()->degree() > 2) &&
-                   (e->halfedge()->twin()->vertex()->degree() > 2) && 
-                   (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+                if(collapsable_edge(e)){
                     record = Edge_Record(vertex_quadrics, e);
                     edge_records[e] = record;
                     edge_queue.insert(record);
@@ -1529,9 +1546,7 @@ bool Halfedge_Mesh::simplify() {
                 hIterator = hIterator->twin()->next();
             }
             e = hIterator->edge();
-            if ((e != chosen_e) && (e->halfedge()->vertex()->degree() > 2) &&
-               (e->halfedge()->twin()->vertex()->degree() > 2) && 
-               (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+            if (collapsable_edge(e)){
                 record = Edge_Record(vertex_quadrics, e);
                 edge_records[e] = record;
                 edge_queue.insert(record);
