@@ -64,6 +64,10 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
     VertexRef v1 = h1->vertex();
     FaceRef f1 = h1->face();
 
+    if ((v1->degree() <= 2) || (v0->degree() <= 2) || (v0 == v1)){
+        return std::nullopt;
+    }
+
     // Collect edges referencing v1
     std::vector<HalfedgeRef> v1_halfedges;
     HalfedgeRef hIterator = h1;
@@ -73,32 +77,48 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
     }
     v1_halfedges.push_back(hIterator);
 
+
     // Delete adjacent faces and one edge if the faces are triangles; reassign halfedges of face otherwise
-    bool f0_triangle = (h0->next()->next()->next() == h0);
-    bool f1_triangle = (h1->next()->next()->next() == h1);
+    bool f0_triangle = (f0->degree() == 3);
+    bool f1_triangle = (f1->degree() == 3);
     HalfedgeRef h2;
     HalfedgeRef h2_twin;
     EdgeRef e2;
+    FaceRef f2;
     if (f0_triangle) {
+        // Store for deletion
         h2 = h0->next();
+        e2 = h2->edge();
         h2_twin = h2->twin();
-        FaceRef f2 = h2->twin()->face();
+        f2 = h2_twin->face();
+
+        // Update remaining face and vertex
         HalfedgeRef h4 = h2->next();
         f2->halfedge() = h4;
         VertexRef v2 = h4->vertex();
         v2->halfedge() = h4;
-        e2 = h2->edge();
-        h4->next() = h2->twin()->next();
+
+        // Update incoming edge in combined face for collapsed edge
+        h4->next() = h2_twin->next();
         h4->face() = f2;
-        HalfedgeRef h6 = h2->twin();
-        while (h6->next() != h2->twin()) {
+        h4->twin() = h4->twin();
+        h4->vertex() = v2;
+        h4->edge() = h4->edge();
+
+        // Update outgoing edge in combined face for collapsed edge
+        HalfedgeRef h6 = h2_twin;
+        while (h6->next() != h2_twin) {
             h6 = h6->next();
         }
         h6->next() = h4;
+        h6->twin() = h6->twin();
+        h6->face() = f2;
+        h6->vertex() = h6->vertex();
+        h6->edge() = h6->edge();
     } else {
         f0->halfedge() = h0->next();
         HalfedgeRef h2 = h0->next();
-        HalfedgeRef h4 = h2->next();
+        HalfedgeRef h4 = h0->next();
         while (h4->next() != h0) {
             h4 = h4->next();
         }
@@ -107,40 +127,56 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
     HalfedgeRef h3;
     HalfedgeRef h3_twin;
     EdgeRef e3;
+    FaceRef f3;
     if (f1_triangle) {
+        // Store for deletion
         h3 = h1->next();
+        e3 = h3->edge();
         h3_twin = h3->twin();
-        FaceRef f3 = h3->twin()->face();
+        f3 = h3_twin->face();
+
+        // Update remaining face and vertex
         HalfedgeRef h5 = h3->next();
         f3->halfedge() = h5;
         VertexRef v3 = h5->vertex();
         v3->halfedge() = h5;
-        e3 = h3->edge();
-        h5->next() = h3->twin()->next();
+
+        // Update incoming edge in combined face for collapsed edge
+        h5->next() = h3_twin->next();
         h5->face() = f3;
-        HalfedgeRef h7 = h3->twin();
-        while (h7->next() != h3->twin()) {
+        h5->twin() = h5->twin();
+        h5->vertex() = v3;
+        h5->edge() = h5->edge();
+
+        // Update outgoing edge in combined face for collapsed edge
+        HalfedgeRef h7 = h3_twin;
+        while (h7->next() != h3_twin) {
             h7 = h7->next();
         }
         h7->next() = h5;
+        h7->twin() = h7->twin();
+        h7->face() = f3;
+        h7->vertex() = h7->vertex();
+        h7->edge() = h7->edge();
+
+        // Update v0 halfedge
         v0->halfedge() = h5->twin();
     } else {
         f1->halfedge() = h1->next();
         HalfedgeRef h3 = h1->next();
-        HalfedgeRef h5 = h3->next();
+        HalfedgeRef h5 = h1->next();
         while (h5->next() != h1) {
             h5 = h5->next();
         }
         h5->next() = h3;
     }
 
-    // Loop through outgoing edges from v1 and make them outgoing edges from v0
     while (!v1_halfedges.empty()) {
         hIterator = v1_halfedges.back();
         hIterator->vertex() = v0;
         v1_halfedges.pop_back();
     }
-    v0->pos = (v0->pos)/2 + (v1->pos)/2;
+    v0->pos = center_of(e);
 
     if (f0_triangle) {
         erase(h2_twin);
@@ -149,6 +185,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
         erase(e2);
     }
     if (f1_triangle) {
+        erase(h3_twin);
         erase(h3_twin);
         erase(h3);
         erase(f1);
@@ -1126,7 +1163,7 @@ bool Halfedge_Mesh::isotropic_remesh() {
 struct Edge_Record {
     Halfedge_Mesh::EdgeRef edge;
     Vec3 optimal;
-    Mat4 A;
+    Mat4 edgeQuadric;
     float cost;
     Edge_Record() {
     }
@@ -1144,8 +1181,9 @@ struct Edge_Record {
         edge = e;
         Halfedge_Mesh::VertexRef v1 = e->halfedge()->vertex();
         Halfedge_Mesh::VertexRef v2 = e->halfedge()->twin()->vertex();
-        A = vertex_quadrics[v1] + vertex_quadrics[v2];
-        Vec3 b = Vec3(-A[3][0], -A[3][1], -A[3][2]);
+        edgeQuadric = vertex_quadrics[v1] + vertex_quadrics[v2];
+        Vec4 b = Vec4(-edgeQuadric[3][0], -edgeQuadric[3][1], -edgeQuadric[3][2], 1.0);
+        Mat4 A = vertex_quadrics[v1] + vertex_quadrics[v2];
         A[3][0] = 0;
         A[3][1] = 0;
         A[3][2] = 0;
@@ -1153,12 +1191,14 @@ struct Edge_Record {
         A[1][3] = 0;
         A[2][3] = 0;
         A[3][3] = 1;
-        if (A.det() > 0.001) {
-            optimal = A.inverse() * b;
+        if (A.det() > 0.1) {
+            Vec4 x = A.inverse() * b;
+            optimal = Vec3(x[0], x[1], x[2]);
         } else {
-            optimal = b;
+            optimal = Halfedge_Mesh::center_of(e);
         }
-        cost = dot(optimal, A*optimal);
+        Vec4 optimal_4 = Vec4(optimal[0], optimal[1], optimal[2], 1.0);
+        cost = dot(optimal_4, edgeQuadric*optimal_4);
     }
 };
 
@@ -1282,7 +1322,7 @@ bool Halfedge_Mesh::simplify() {
     // The rest of the codebase will automatically call validate() after each op,
     // but here simply calling collapse_edge() will not erase the elements.
     // You should use collapse_edge_erase() instead for the desired behavior.
-    
+
     // Compute quadrics for all faces
     int initialFaceCount = 0;
     for(FaceRef f = faces_begin(); f != faces_end(); f++) {
@@ -1293,9 +1333,7 @@ bool Halfedge_Mesh::simplify() {
                 return false;
             }
             VertexRef v1 = f->halfedge()->vertex();
-            VertexRef v2 = f->halfedge()->next()->vertex();
-            VertexRef v3 = f->halfedge()->next()->next()->vertex();
-            Vec3 N = cross((v1->pos)-(v2->pos), (v3->pos)-(v2->pos));
+            Vec3 N = normal_of(f);
             Vec4 plane_vector = Vec4(N[0], N[1], N[2], -dot(N, (v1->pos)));
             Mat4 quadric = outer(plane_vector, plane_vector);
             face_quadrics[f] = quadric;
@@ -1325,24 +1363,37 @@ bool Halfedge_Mesh::simplify() {
     // Remove edges until desired number of faces while
     // adjusting quadrics, edge records, and queue as appropriate
     int currentFaceCount = initialFaceCount;
-    std::cout << currentFaceCount << std::flush;
+    VertexRef collapsed_edge;
     while (currentFaceCount > initialFaceCount/4){
-        if (currentFaceCount <= 5) {
+        if (currentFaceCount <= 2) {
             return false;
         }
-        std::cout << currentFaceCount << '\n' << std::flush;
-        std::cout << initialFaceCount/4 << '\n' << std::flush;
+        if (edge_queue.size() == 0) {
+            for(EdgeRef e = edges_begin(); e != edges_end(); e++) {
+                if ((e->halfedge()->vertex()->degree() > 2) &&
+                   (e->halfedge()->twin()->vertex()->degree() > 2) && 
+                   (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+                    Edge_Record record = Edge_Record(vertex_quadrics, e);
+                    edge_records[e] = record;
+                    edge_queue.insert(record);
+                }
+            }
+            // If there are no edges with vertices with degrees > 2 and different end points return
+            if (edge_queue.size() == 0) { 
+                return false;
+            }
+        }
         Edge_Record bestEdge = edge_queue.top();
         EdgeRef chosen_e = bestEdge.edge;
+
         if (chosen_e->on_boundary()){
             currentFaceCount = currentFaceCount - 1;
         } else {
             currentFaceCount = currentFaceCount - 2;
         }
-        edge_queue.pop();
-        Mat4 new_quadric = bestEdge.A;
+        Mat4 new_quadric = bestEdge.edgeQuadric;
 
-        // Remove adjacent edges from q and from records
+        // Remove adjacent edges from edge_queue and from records
         EdgeRef e;
         Edge_Record record;
         HalfedgeRef hStart = chosen_e->halfedge();
@@ -1353,6 +1404,10 @@ bool Halfedge_Mesh::simplify() {
             edge_queue.remove(record);
             hIterator = hIterator->twin()->next();
         }
+        e = hIterator->edge();
+        record = edge_records[e];
+        edge_queue.remove(record);
+
         hStart = chosen_e->halfedge()->twin();
         hIterator = hStart;
         while (hIterator->twin()->next() != hStart) {
@@ -1361,26 +1416,76 @@ bool Halfedge_Mesh::simplify() {
             edge_queue.remove(record);
             hIterator = hIterator->twin()->next();
         }
-        
-
-        VertexRef collapsed_edge = *collapse_edge(chosen_e);
-        vertex_quadrics[collapsed_edge] = new_quadric;
-        collapsed_edge->pos = bestEdge.optimal;
-        
-        // Update adjacent edges in edge_records and edge_queue
-        hStart = collapsed_edge->halfedge();
-        hIterator = hStart;
-        while (hIterator->twin()->next() != hStart) {
+        e = hIterator->edge();
+        record = edge_records[e];
+        edge_queue.remove(record);
+        std::optional<VertexRef> collapsed_edge_opt = collapse_edge_erase(chosen_e);
+        if (collapsed_edge_opt) {
+            collapsed_edge = *collapsed_edge_opt;
+            vertex_quadrics[collapsed_edge] = new_quadric;
+            collapsed_edge->pos = bestEdge.optimal;
+            hStart = collapsed_edge->halfedge();
+            hIterator = hStart;
+            while (hIterator->twin()->next() != hStart) {
+                e = hIterator->edge();
+                record = Edge_Record(vertex_quadrics, e);
+                edge_records[e] = record;
+                edge_queue.insert(record);
+                hIterator = hIterator->twin()->next();
+            }
             e = hIterator->edge();
             record = Edge_Record(vertex_quadrics, e);
             edge_records[e] = record;
             edge_queue.insert(record);
-            hIterator = hIterator->twin()->next();
+        } else {  // reset if collapse_edge fails
+            hStart = chosen_e->halfedge();
+            hIterator = hStart;
+            while (hIterator->twin()->next() != hStart) {
+                e = hIterator->edge();
+                if ((e != chosen_e) && (e->halfedge()->vertex()->degree() > 2) &&
+                   (e->halfedge()->twin()->vertex()->degree() > 2) && 
+                   (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+                    record = Edge_Record(vertex_quadrics, e);
+                    edge_records[e] = record;
+                    edge_queue.insert(record);
+                }
+                hIterator = hIterator->twin()->next();
+            }
+            e = hIterator->edge();
+            if ((e != chosen_e) && (e->halfedge()->vertex()->degree() > 2) &&
+               (e->halfedge()->twin()->vertex()->degree() > 2) && 
+               (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+                record = Edge_Record(vertex_quadrics, e);
+                edge_records[e] = record;
+                edge_queue.insert(record);
+            }
+            hStart = chosen_e->halfedge()->twin();
+            hIterator = hStart;
+            while (hIterator->twin()->next() != hStart) {
+                e = hIterator->edge();
+                if ((e != chosen_e) && (e->halfedge()->vertex()->degree() > 2) &&
+                   (e->halfedge()->twin()->vertex()->degree() > 2) && 
+                   (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+                    record = Edge_Record(vertex_quadrics, e);
+                    edge_records[e] = record;
+                    edge_queue.insert(record);
+                }
+                hIterator = hIterator->twin()->next();
+            }
+            e = hIterator->edge();
+            if ((e != chosen_e) && (e->halfedge()->vertex()->degree() > 2) &&
+               (e->halfedge()->twin()->vertex()->degree() > 2) && 
+               (e->halfedge()->twin()->vertex() != e->halfedge()->vertex())) {
+                record = Edge_Record(vertex_quadrics, e);
+                edge_records[e] = record;
+                edge_queue.insert(record);
+            }
+            if (chosen_e->on_boundary()){
+                currentFaceCount = currentFaceCount + 1;
+            } else {
+                currentFaceCount = currentFaceCount + 2;
+            }
         }
-        e = hIterator->edge();
-        record = Edge_Record(vertex_quadrics, e);
-        edge_records[e] = record;
-        edge_queue.insert(record);
     }
     return true;
 }
