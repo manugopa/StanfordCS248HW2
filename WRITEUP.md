@@ -31,4 +31,6 @@ Manu Gopakumar (manugopa@stanford.edu)
 
 
 ## Comments/Considerations
-On `Simplification`, the smallest primitive was set to be when all remaining edges either have vertices that are degree 2 or less, or the same vertices. When `A` is singular, the midpoint of the lines is used. The America's Next Top 3D Model is included under the filename `$ROOT/model.dae`. 
+Simplification collapses the shape until any additional edge collapses would result in edges from different faces being collapsed onto each other or there are only 2 remaining faces. When 'A' is singular for simplification, the edge is collapsed to the best point from the midpoint and the two vertices.
+
+ The America's Next Top 3D Model is included under the filename `$ROOT/model.dae`. 

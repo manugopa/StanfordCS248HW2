@@ -51,14 +51,17 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::erase_edge(Halfedge_Mesh::E
     return std::nullopt;
 }
 
+/*
+    This method checks if an edge can be collapsed without merging edges from different faces.
+*/
 bool collapsable_edge(Halfedge_Mesh::EdgeRef e) {
     Halfedge_Mesh::HalfedgeRef h0 = e->halfedge();
     Halfedge_Mesh::HalfedgeRef h1 = h0->twin();
     Halfedge_Mesh::HalfedgeRef h2 = h0->next();
     Halfedge_Mesh::HalfedgeRef h3 = h1->next();
-    Halfedge_Mesh::HalfedgeRef i0 = h2;
 
     // Check if there are any edges would be collapsed onto each other due to the 3d geometry
+    Halfedge_Mesh::HalfedgeRef i0 = h2;
     do {
         if (i0 != h2) {
             Halfedge_Mesh::HalfedgeRef i1 = h3;
@@ -89,6 +92,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
     VertexRef v1 = h1->vertex();
     FaceRef f1 = h1->face();
 
+    // Use helper function to check if an edge can be collapsed without merging edges from different faces.
     if (!(collapsable_edge(e))){
         return std::nullopt;
     }
@@ -110,7 +114,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
     HalfedgeRef h2_twin;
     EdgeRef e2;
     FaceRef f2;
-    if (f0_triangle) {
+    if (f0_triangle) { // Handle the triangle case for f0
         // Store for deletion
         h2 = h0->next();
         e2 = h2->edge();
@@ -140,7 +144,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
         h6->face() = f2;
         h6->vertex() = h6->vertex();
         h6->edge() = h6->edge();
-    } else {
+    } else { // Handle the non triangle case for f0
         f0->halfedge() = h0->next();
         HalfedgeRef h2 = h0->next();
         HalfedgeRef h4 = h0->next();
@@ -153,7 +157,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
     HalfedgeRef h3_twin;
     EdgeRef e3;
     FaceRef f3;
-    if (f1_triangle) {
+    if (f1_triangle) { // Handle the triangle case for f1
         // Store for deletion
         h3 = h1->next();
         e3 = h3->edge();
@@ -186,7 +190,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
 
         // Update v0 halfedge
         v0->halfedge() = h5->twin();
-    } else {
+    } else { // Handle the non triangle case for f1
         f1->halfedge() = h1->next();
         HalfedgeRef h3 = h1->next();
         HalfedgeRef h5 = h1->next();
@@ -196,13 +200,17 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::collapse_edge(Halfedge_Me
         h5->next() = h3;
     }
 
+    // Make edges reference v0 instead of v1
     while (!v1_halfedges.empty()) {
         hIterator = v1_halfedges.back();
         hIterator->vertex() = v0;
         v1_halfedges.pop_back();
     }
+
+    // Update v0 position to midpoint
     v0->pos = center_of(e);
 
+    // Erase components
     if (f0_triangle) {
         erase(h2_twin);
         erase(h2);
@@ -244,6 +252,7 @@ std::optional<Halfedge_Mesh::EdgeRef> Halfedge_Mesh::flip_edge(Halfedge_Mesh::Ed
     if (e->on_boundary()) {
         return std::nullopt;
     }
+
     //// Load the relevant data structures
     // HALFEDGES
     HalfedgeRef h0 = e->halfedge();
@@ -379,6 +388,7 @@ std::optional<Halfedge_Mesh::VertexRef> Halfedge_Mesh::split_edge(Halfedge_Mesh:
     } else {
         h0 = e->halfedge();
     }
+
     //// Load the relevant data structures
     // HALFEDGES
     HalfedgeRef h1 = h0->next();
@@ -699,7 +709,6 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
     // -------------------------------------------------------------------------------------------
     // --- See diagram in {DIAGRAM_FNAME}.md for visual mapping between mesh objects & indices ---
     // -------------------------------------------------------------------------------------------
-    std::cout<<"Yay we're beveling! " << std::endl;
 
     // Don't bevel a boundary...
     if(f->is_boundary()){return f;}
@@ -740,10 +749,6 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
         int edge_idx = i*NUM_EDGES_PER_BFACE; // Since there are NUM_EDGES_PER_BFACE number of edges added per iteration unit (bevel faces)
 
         // Upkeep: set new vertices to their respective "starting positions" & one possible associated half-edge
-        std::cout << "---- new iter -----" << std::endl;
-        std::cout << "f-degree0 " << f->degree() << std::endl;
-        std::cout << "original_halfedges ID# = " << original_halfedges[i]->id()<< std::endl;
-        std::cout << "vertex ID# = " << original_halfedges[i]->vertex()->id()<< std::endl;
 
         new_vertices[i]->pos = original_halfedges[i]->vertex()->pos;
         new_vertices[i]->halfedge() = new_halfedges[halfedge_idx+3]; // Chose to set it to the halfedges within f
@@ -851,9 +856,6 @@ std::optional<Halfedge_Mesh::FaceRef> Halfedge_Mesh::bevel_face(Halfedge_Mesh::F
     //     test_h = test_h->next();
     //     std::cout << "Tracing: " << test_h->id() << std::endl;
     // } while(test_h != f->halfedge());
-
-    std::cout << "Yay! Done beveling: " << f->id() << std::endl;
-    std::cout << "Yay! Done beveling: " << f->halfedge()->id() << std::endl;
 
     return f;
 }
@@ -1144,7 +1146,7 @@ void Halfedge_Mesh::catmullclark_subdivide_positions() {
         do
         {
             F += he->face()->new_pos; // already updated
-            R += he->edge()->new_pos; // already updated
+            R += he->edge()->center(); // already updated
             he = he->twin()->next(); // Traverse to a HE on next edge
         }while(he != v->halfedge());
 
@@ -1272,14 +1274,28 @@ struct Edge_Record {
         A[1][3] = 0;
         A[2][3] = 0;
         A[3][3] = 1;
-        if (A.det() > 0.00001) {
+        if (A.det() > 0.00001) { // Non-invertibility condition
             Vec4 x = A.inverse() * b;
             optimal = Vec3(x[0], x[1], x[2]);
-        } else {
+            Vec4 optimal_4 = Vec4(optimal[0], optimal[1], optimal[2], 1.0);
+            cost = dot(optimal_4, edgeQuadric*optimal_4);
+        } else { // Check edges and midpoint of edge for best point
             optimal = Halfedge_Mesh::center_of(e);
+            Vec4 optimal_4 = Vec4(optimal[0], optimal[1], optimal[2], 1.0);
+            cost = dot(optimal_4, edgeQuadric*optimal_4);
+            float cost1 = dot(Vec4((v1->pos)[0], (v1->pos)[1], (v1->pos)[2], 1.0),
+                        edgeQuadric*Vec4((v1->pos)[0], (v1->pos)[1], (v1->pos)[2], 1.0));
+            float cost2 = dot(Vec4((v2->pos)[0], (v2->pos)[1], (v2->pos)[2], 1.0),
+                        edgeQuadric*Vec4((v2->pos)[0], (v2->pos)[1], (v2->pos)[2], 1.0));
+            if ((cost1 < cost) && (cost1 < cost2)) {
+                cost = cost1;
+                optimal = (v1->pos);
+            }
+            if ((cost2 < cost) && (cost2 < cost1)) {
+                cost = cost2;
+                optimal = (v2->pos);
+            }
         }
-        Vec4 optimal_4 = Vec4(optimal[0], optimal[1], optimal[2], 1.0);
-        cost = dot(optimal_4, edgeQuadric*optimal_4);
     }
 };
 
@@ -1446,9 +1462,7 @@ bool Halfedge_Mesh::simplify() {
     int currentFaceCount = initialFaceCount;
     VertexRef collapsed_edge;
     while (currentFaceCount > initialFaceCount/4){
-        if (currentFaceCount <= 2) {
-            return false;
-        }
+        // Handle the cases where returning early is necessary
         if (edge_queue.size() == 0) {
             for(EdgeRef e = edges_begin(); e != edges_end(); e++) {
                 if (collapsable_edge(e)){
@@ -1457,18 +1471,22 @@ bool Halfedge_Mesh::simplify() {
                     edge_queue.insert(record);
                 }
             }
-            // If there are no edges with vertices with degrees > 2 and different end points return
+            // If there are no edges that are collapsable, return early
             if (edge_queue.size() == 0) { 
-                return false;
+                return true;
             }
         }
+        
+        // Select best edge and update face count
         Edge_Record bestEdge = edge_queue.top();
         EdgeRef chosen_e = bestEdge.edge;
-
         if (chosen_e->on_boundary()){
             currentFaceCount = currentFaceCount - 1;
         } else {
             currentFaceCount = currentFaceCount - 2;
+        }
+        if (currentFaceCount <= 1) {
+            return true;
         }
         Mat4 new_quadric = bestEdge.edgeQuadric;
 
@@ -1498,8 +1516,10 @@ bool Halfedge_Mesh::simplify() {
         e = hIterator->edge();
         record = edge_records[e];
         edge_queue.remove(record);
+
+        // Attempt to collapse the edge
         std::optional<VertexRef> collapsed_edge_opt = collapse_edge_erase(chosen_e);
-        if (collapsed_edge_opt) {
+        if (collapsed_edge_opt) { // Update edges surrounding the collapsed node
             collapsed_edge = *collapsed_edge_opt;
             vertex_quadrics[collapsed_edge] = new_quadric;
             collapsed_edge->pos = bestEdge.optimal;
@@ -1516,7 +1536,8 @@ bool Halfedge_Mesh::simplify() {
             record = Edge_Record(vertex_quadrics, e);
             edge_records[e] = record;
             edge_queue.insert(record);
-        } else {  // reset if collapse_edge fails
+
+        } else {  // if collapse_edge fails, reset back surrounding edges and face count
             hStart = chosen_e->halfedge();
             hIterator = hStart;
             while (hIterator->twin()->next() != hStart) {
